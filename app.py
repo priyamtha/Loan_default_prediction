@@ -20,8 +20,8 @@ if not os.path.exists(DATA_PATH):
     st.stop()
 
 @st.cache_data
-def get_data():
-    df = load_data(DATA_PATH)
+def get_data(nrows=100000):
+    df = load_data(DATA_PATH, nrows=nrows)
     if df is not None:
         df = clean_data(df)
     return df

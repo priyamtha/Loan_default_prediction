@@ -5,12 +5,19 @@ import plotly.graph_objects as go
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-def load_data(filepath):
+def load_data(filepath, nrows=None):
     """
     Load data from CSV file.
+    
+    Args:
+        filepath (str): Path to the CSV file.
+        nrows (int, optional): Number of rows to read. Useful for large datasets.
     """
     try:
-        df = pd.read_csv(filepath)
+        if nrows:
+            df = pd.read_csv(filepath, nrows=nrows)
+        else:
+            df = pd.read_csv(filepath)
         return df
     except Exception as e:
         print(f"Error loading data: {e}")
