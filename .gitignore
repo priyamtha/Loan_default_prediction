@@ -1,0 +1,17 @@
+# Data
+data/
+*.csv
+__pycache__/
+*.pkl
+
+# Environment
+.env
+.venv
+env/
+venv/
+*.part
+
+# IDE
+.vscode
+.idea
+*.gemini
