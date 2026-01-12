@@ -19,6 +19,3 @@ venv/
 .vscode
 .idea
 *.gemini
-
-# Temp files
-temp_target_repo/
