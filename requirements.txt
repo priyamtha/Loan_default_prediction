@@ -3,6 +3,7 @@ numpy
 scikit-learn
 plotly
 streamlit
+joblib
 seaborn
 matplotlib
 gdown

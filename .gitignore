@@ -1,8 +1,12 @@
 # Data
 data/
 *.csv
+!metrics.csv
 __pycache__/
 *.pkl
+!model.pkl
+!scaler.pkl
+!features.pkl
 
 # Environment
 .env
@@ -15,3 +19,6 @@ venv/
 .vscode
 .idea
 *.gemini
+
+# Temp files
+temp_target_repo/

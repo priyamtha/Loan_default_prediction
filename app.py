@@ -1,120 +1,157 @@
 import streamlit as st
 import pandas as pd
-import os
 import joblib
-from src.data_processor import load_data, clean_data, get_basic_metrics, plot_distribution, plot_correlation
-from src.train_model import train_models
+import plotly.express as px
+from sklearn.preprocessing import StandardScaler
 
-st.set_page_config(page_title="Loan Default Prediction", layout="wide")
-
-st.title("Loan Default Prediction System")
-
-# Sidebar
-st.sidebar.title("Navigation")
-options = st.sidebar.radio("Go to", ["Data Overview", "EDA & Statistics", "Model Training & Evaluation", "Prediction"])
-
-# Load Data
-DATA_PATH = 'data/Loan_data.csv'
-if not os.path.exists(DATA_PATH):
-    st.error(f"Data file not found at {DATA_PATH}. Please run download_data.py.")
-    st.stop()
+@st.cache_resource
+def load_artifacts():
+    model = joblib.load("model.pkl")
+    scaler = joblib.load("scaler.pkl")
+    features = joblib.load("features.pkl")
+    return model, scaler, features
 
 @st.cache_data
-def get_data(nrows=100000):
-    df = load_data(DATA_PATH, nrows=nrows)
-    if df is not None:
-        df = clean_data(df)
+def load_data():
+    df = pd.read_csv("data/Loan_data.csv", nrows=10000)
     return df
 
-df = get_data()
 
-if options == "Data Overview":
-    st.header("Dataset Overview")
-    if df is not None:
-        st.write("### Raw Data (First 100 rows)")
-        st.dataframe(df.head(100))
-        
-        metrics = get_basic_metrics(df)
-        st.write("### Dataset Metrics")
-        for k, v in metrics.items():
-            st.write(f"- **{k}**: {v}")
+def preprocess_input(user_input, scaler, features):
+    input_df = pd.DataFrame([user_input])
+    input_encoded = pd.get_dummies(input_df)
+
+    for col in features:
+        if col not in input_encoded.columns:
+            input_encoded[col] = 0
+    input_encoded = input_encoded[features]
+
+    scaled_input = scaler.transform(input_encoded)
+    return scaled_input
+
+
+def make_prediction(model, input_array):
+    prediction = model.predict(input_array)[0]
+    proba = model.predict_proba(input_array)[0][1]
+    return prediction, proba
+
+
+st.set_page_config(page_title="Loan Default Prediction", layout="wide")
+st.title("🏦 Loan Default Prediction App")
+
+model, scaler, features = load_artifacts()
+df = load_data()
+
+st.sidebar.title("📌 Navigation")
+page = st.sidebar.radio("Go to", ["Data", "EDA - Visual", "Prediction"])
+
+
+if page == "Data":
+    st.subheader("📄 Dataset Preview")
+    st.dataframe(df.head(50))
+
+    st.subheader("📊 Model Performance Metrics")
+    try:
+        metrics_df = pd.read_csv("metrics.csv")
+        st.dataframe(metrics_df)
+    except FileNotFoundError:
+        st.warning("⚠️ metrics.csv not found. Train the model first.")
+
+
+elif page == "EDA - Visual":
+    st.subheader("📊 Exploratory Data Analysis")
+
+    st.markdown("### 🧮 Target Class Distribution")
+    target_counts = df["TARGET"].value_counts().reset_index()
+    target_counts.columns = ["Class", "Count"]
+    fig_pie = px.pie(target_counts, values='Count', names='Class',
+                     title='Loan Default Class Distribution',
+                     color_discrete_sequence=px.colors.sequential.RdBu)
+    st.plotly_chart(fig_pie, use_container_width=True)
+
+    st.markdown("### 📌 Select a column to visualize")
+    col = st.selectbox("Choose a column", df.columns)
+
+    if df[col].dtype == 'object' or df[col].nunique() < 20:
+        fig_bar = px.histogram(df, x=col, color="TARGET", barmode="group",
+                               title=f"Distribution of {col} by Target",
+                               color_discrete_sequence=["green", "red"])
+        st.plotly_chart(fig_bar, use_container_width=True)
     else:
-        st.error("Could not load data.")
+        fig_box = px.box(df, x="TARGET", y=col, color="TARGET",
+                         points="all", title=f"{col} vs TARGET",
+                         color_discrete_sequence=["green", "red"])
+        st.plotly_chart(fig_box, use_container_width=True)
 
-elif options == "EDA & Statistics":
-    st.header("Exploratory Data Analysis")
-    if df is not None:
-        # Distribution Plot
-        numeric_cols = df.select_dtypes(include=['float64', 'int64']).columns.tolist()
-        selected_col = st.selectbox("Select Column for Distribution", numeric_cols)
-        if selected_col:
-            fig = plot_distribution(df, selected_col)
-            st.plotly_chart(fig)
-            
-        # Correlation Matrix
-        st.write("### Correlation Matrix")
-        fig_corr = plot_correlation(df)
-        st.plotly_chart(fig_corr)
-    else:
-        st.error("Could not load data.")
+    st.markdown("### 📈 Show Summary Statistics")
+    if st.checkbox("Show describe() output"):
+        st.dataframe(df.describe().T)
 
-elif options == "Model Training & Evaluation":
-    st.header("Model Training & Performance")
-    if st.button("Train Models"):
-        with st.spinner("Training models..."):
-            results = train_models(df)
-            if results:
-                st.success("Training Complete!")
-                res_df = pd.DataFrame(results).T
-                st.write("### Model Performance Metrics")
-                st.dataframe(res_df.style.highlight_max(axis=0))
-                
-                # Check if we met the criteria
-                st.write("### Success Criteria Check (> 87%)")
-                best_model_name = res_df['F1 Score'].idxmax()
-                st.write(f"Best Model: **{best_model_name}**")
+
+elif page == "Prediction":
+    st.subheader("🧠 Make a Prediction")
+
+    age = st.number_input("Age", min_value=18, max_value=100, value=30)
+
+    income_range = st.selectbox("Annual Income Range", [
+        "Below 1 Lakh",
+        "1 Lakh - 5 Lakhs",
+        "5 Lakhs - 10 Lakhs",
+        "10 Lakhs - 25 Lakhs",
+        "25 Lakhs - 50 Lakhs",
+        "50 Lakhs - 1 Crore",
+        "Above 1 Crore"
+    ])
+    income_mapping = {
+        "Below 1 Lakh": 50_000,
+        "1 Lakh - 5 Lakhs": 300_000,
+        "5 Lakhs - 10 Lakhs": 750_000,
+        "10 Lakhs - 25 Lakhs": 1_750_000,
+        "25 Lakhs - 50 Lakhs": 3_750_000,
+        "50 Lakhs - 1 Crore": 7_500_000,
+        "Above 1 Crore": 12_000_000,
+    }
+    income = income_mapping[income_range]
+
+    employment_status = st.selectbox("Employment Status", ["Full-time", "Part-time", "Self-employed", "Unemployed"])
+    credit_score = st.number_input("Credit Score", min_value=300, max_value=850, value=650)
+
+    input_dict = {
+        "AGE": age,
+        "ANNUAL_INCOME": income,
+        "CREDIT_SCORE": credit_score,
+    }
+
+    emp_options = ["Full-time", "Part-time", "Self-employed", "Unemployed"]
+    for emp in emp_options:
+        col_name = f"EMPLOYMENT_STATUS_{emp}"
+        input_dict[col_name] = 1 if employment_status == emp else 0
+
+    if st.button("Predict"):
+        try:
+            input_array = preprocess_input(input_dict, scaler, features)
+            prediction, risk_score = make_prediction(model, input_array)
+
+            result = "🟢 Not Defaulted" if prediction == 0 else "🔴 Defaulted"
+            st.success(f"**Prediction:** {result}")
+            st.info(f"**Derived Risk Score:** {risk_score:.5f}")
+
+            st.markdown("### 📉 Risk Probability")
+            st.progress(risk_score)
+
+            if risk_score < 0.3:
+                st.success("🟢 Low Risk")
+            elif 0.3 <= risk_score < 0.7:
+                st.warning("🟠 Medium Risk")
             else:
-                st.error("Training failed.")
-    
-    if os.path.exists('models/best_model.pkl'):
-        st.info("A trained model is available.")
+                st.error("🔴 High Risk")
 
-elif options == "Prediction":
-    st.header("Loan Default Prediction")
-    if os.path.exists('models/best_model.pkl'):
-        model = joblib.load('models/best_model.pkl')
-        
-        # Create input fields for features
-        # We need the feature names from the model or the dataframe
-        # Ideally, we should save feature names during training
-        # For now, we will use columns from df (excluding TARGET)
-        
-        if df is not None:
-            input_data = {}
-            feature_cols = df.drop(columns=['TARGET'], errors='ignore').columns
-            
-            with st.form("prediction_form"):
-                st.write("Enter Customer Details:")
-                cols = st.columns(3)
-                for i, col in enumerate(feature_cols):
-                    # Check type
-                    if pd.api.types.is_numeric_dtype(df[col]):
-                        input_data[col] = cols[i % 3].number_input(col, value=float(df[col].mean()))
-                    else:
-                        unique_vals = df[col].unique()
-                        input_data[col] = cols[i % 3].selectbox(col, unique_vals)
-                
-                submitted = st.form_submit_button("Predict")
-                
-                if submitted:
-                    input_df = pd.DataFrame([input_data])
-                    prediction = model.predict(input_df)[0]
-                    proba = model.predict_proba(input_df)[0][1] if hasattr(model, "predict_proba") else 0
-                    
-                    st.write("---")
-                    if prediction == 1:
-                        st.error(f"Prediction: **Default** (Probability: {proba:.2f})")
-                    else:
-                        st.success(f"Prediction: **No Default** (Probability: {proba:.2f})")
-    else:
-        st.warning("Please train the model first in the 'Model Training' section.")
+            st.write("🧪 Debug Info")
+            st.json({
+                "Prediction": int(prediction),
+                "Risk Score (Raw)": float(risk_score),
+                "User Input": input_dict
+            })
+
+        except Exception as e:
+            st.error(f"Prediction error: {e}")
